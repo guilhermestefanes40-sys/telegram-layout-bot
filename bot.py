@@ -1,3 +1,4 @@
+from typing import List
 def montar_layout_instagram(photos: List[str], caption: str, user_id: int) -> str:
     """
     Gera uma imagem 1080x1080 com:
