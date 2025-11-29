@@ -1,6 +1,5 @@
 import os
 import textwrap
-from typing import List
 
 from telegram import Update
 from telegram.ext import (
@@ -44,56 +43,38 @@ def crop_fill(img: Image.Image, target_w: int, target_h: int) -> Image.Image:
     return img.resize((target_w, target_h), Image.LANCZOS)
 
 
-def montar_layout_instagram(photos: List[str], caption: str, user_id: int) -> str:
+def montar_layout_instagram(photo_path: str, caption: str, user_id: int) -> str:
     """
     Layout final 1080x1080:
-    - 1 foto grande em cima (620px)
-    - 2 fotos lado a lado (320px)
-    - faixa de texto fina (140px)
+    - 1 foto grande ocupando a parte de cima (ex: 760px)
+    - faixa de texto embaixo com título + bullets
     """
     size = (1080, 1080)
     canvas = Image.new("RGB", size, (255, 255, 255))
 
     # ------------------------------------------------------------
-    # FOTO PRINCIPAL (620px)
+    # FOTO PRINCIPAL (topo) - com crop inteligente
     # ------------------------------------------------------------
-    main_img = Image.open(photos[0]).convert("RGB")
-    main_img = crop_fill(main_img, 1080, 620)
-    canvas.paste(main_img, (0, 0))
+    foto_altura = 760  # mais espaço pra foto
+    foto_largura = 1080
 
-    # ------------------------------------------------------------
-    # FOTOS SECUNDÁRIAS (2 fotos, 320px altura)
-    # ------------------------------------------------------------
-    thumbs = photos[1:3]
-
-    thumb_area_top = 620
-    faixa_h = 140
-    thumb_area_height = 1080 - thumb_area_top - faixa_h  # 320px
-
-    margin_x = 12
-    slot_w = (1080 - 3 * margin_x) // 2
-    slot_h = thumb_area_height  # ocupa toda a faixa
-
-    x_positions = [
-        margin_x,
-        margin_x * 2 + slot_w
-    ]
-
-    for idx, path in enumerate(thumbs[:2]):
-        img = Image.open(path).convert("RGB")
-        img = crop_fill(img, slot_w, slot_h)
-        canvas.paste(img, (x_positions[idx], thumb_area_top))
+    img = Image.open(photo_path).convert("RGB")
+    img = crop_fill(img, foto_largura, foto_altura)
+    canvas.paste(img, (0, 0))
 
     # ------------------------------------------------------------
-    # FAIXA DE TEXTO (140px)
+    # FAIXA DE TEXTO (parte de baixo)
     # ------------------------------------------------------------
-    faixa_top = 1080 - faixa_h
+    faixa_top = foto_altura          # começa logo após a foto
+    faixa_altura = size[1] - faixa_top  # resto da imagem
+
     draw = ImageDraw.Draw(canvas)
     draw.rectangle([(0, faixa_top), (1080, 1080)], fill=(20, 20, 20))
 
+    # fontes
     try:
-        font_title = ImageFont.truetype("arial.ttf", 46)
-        font_body = ImageFont.truetype("arial.ttf", 30)
+        font_title = ImageFont.truetype("arial.ttf", 50)
+        font_body = ImageFont.truetype("arial.ttf", 32)
     except Exception:
         font_title = ImageFont.load_default()
         font_body = ImageFont.load_default()
@@ -103,14 +84,14 @@ def montar_layout_instagram(photos: List[str], caption: str, user_id: int) -> st
     bullets = lines[1:]
 
     text_x = 40
-    text_y = faixa_top + 14
-    max_width_chars = 30
+    text_y = faixa_top + 20
+    max_width_chars = 32
 
-    # Título
+    # título
     draw.text((text_x, text_y), title, font=font_title, fill="white")
-    text_y += 52
+    text_y += 60
 
-    # Bullets
+    # bullets
     for b in bullets:
         wrapped = textwrap.wrap(b, width=max_width_chars)
         for i, line in enumerate(wrapped):
@@ -121,10 +102,10 @@ def montar_layout_instagram(photos: List[str], caption: str, user_id: int) -> st
                 font=font_body,
                 fill="#DCDCDC",
             )
-            text_y += 34
-        text_y += 4
+            text_y += 38
+        text_y += 6
 
-    # Salvar arte
+    # salvar arte
     os.makedirs("outputs", exist_ok=True)
     output_path = os.path.join("outputs", f"{user_id}_post_instagram.jpg")
     canvas.save(output_path, "JPEG", quality=90)
@@ -165,15 +146,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     msg = (
         f"Fala, {nome}! 👋\n\n"
-        "Vou montar seu post assim:\n"
-        "- 1 foto grande em cima\n"
-        "- 2 fotos menores embaixo\n"
-        "- faixa de texto com título + bullets\n\n"
-        "📸 Me manda AGORA a PRIMEIRA FOTO (principal).\n"
-        "Depois manda mais 2 fotos (detalhes). Serão 3 no total.\n"
-        "Quando terminar as 3 fotos, me manda o TEXTO neste formato:\n\n"
+        "Novo fluxo:\n"
+        "- Você me manda APENAS 1 FOTO (principal)\n"
+        "- Depois manda o TEXTO do anúncio\n\n"
+        "Formato do texto:\n"
         "Linha 1: Título (ex: Scania R-480 2019 6x4)\n"
-        "Linhas seguintes: itens do anúncio (km, estado, local, preço etc.)"
+        "Linhas seguintes: itens do anúncio (km, estado, local, preço etc.)\n\n"
+        "Pode mandar a FOTO agora 📸"
     )
     await update.message.reply_text(msg)
 
@@ -184,49 +163,37 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     os.makedirs("downloads", exist_ok=True)
 
-    photos = context.user_data.get("photos", [])
-    if len(photos) >= 3:
-        await update.message.reply_text(
-            "Você já me mandou 3 fotos 😉\n"
-            "Agora me manda o TEXTO do anúncio.\n"
-            "Se quiser recomeçar, é só usar /start."
-        )
-        return
+    # Se já tem uma foto guardada, substitui ou pede pra /start
+    if "photo_path" in context.user_data:
+        # Vamos sobrescrever a anterior com a nova (caso a pessoa queira trocar)
+        idx = 1
+    else:
+        idx = 1
 
-    idx = len(photos) + 1
     file_path = os.path.join("downloads", f"{update.effective_user.id}_{idx}.jpg")
     await file.download_to_drive(file_path)
 
-    photos.append(file_path)
-    context.user_data["photos"] = photos
+    context.user_data["photo_path"] = file_path
 
-    if len(photos) < 3:
-        await update.message.reply_text(
-            f"Foto {len(photos)} salva ✅\n"
-            "Me manda a PRÓXIMA foto (até fechar as 3)."
-        )
-    else:
-        await update.message.reply_text(
-            "Foto 3 salva ✅\n"
-            "Agora me manda o TEXTO do anúncio naquele formato (título na primeira linha, itens nas linhas de baixo)."
-        )
+    await update.message.reply_text(
+        "Foto salva ✅\nAgora me manda o TEXTO do anúncio naquele formato (título na primeira linha, itens nas linhas abaixo)."
+    )
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text.strip()
-    photos = context.user_data.get("photos", [])
+    photo_path = context.user_data.get("photo_path")
 
-    if len(photos) < 3:
+    if not photo_path:
         await update.message.reply_text(
-            "Pra eu montar esse layout, preciso de 3 FOTOS primeiro 📸\n"
-            "Me manda as fotos e depois o TEXTO."
+            "Antes preciso da FOTO 📸\nMe manda a foto primeiro, depois o texto."
         )
         return
 
     user_id = update.effective_user.id
 
     # Monta a arte
-    output_path = montar_layout_instagram(photos, text, user_id)
+    output_path = montar_layout_instagram(photo_path, text, user_id)
 
     # Monta a legenda
     legenda = montar_legenda_padrao(text)
