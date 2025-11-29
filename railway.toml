@@ -1,0 +1,5 @@
+[build]
+builder = "railway/python"
+
+[deploy]
+start = "python bot.py"
