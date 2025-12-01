@@ -15,7 +15,7 @@ from PIL import Image, ImageDraw, ImageFont
 TOKEN = os.environ.get("BOT_TOKEN")
 
 # Caminho do arquivo de logo (PNG com fundo transparente).
-# Coloque um arquivo "logo_renatruck.png" na raiz do repositório.
+# Coloque um arquivo "logo_renatruck.png" na raiz do repositório se quiser mostrar a logo.
 LOGO_PATH = "logo_renatruck.png"
 
 
@@ -49,9 +49,10 @@ def crop_fill(img: Image.Image, target_w: int, target_h: int) -> Image.Image:
 
 def extrair_modelo_e_preco(caption: str) -> tuple[str, str]:
     """
-    Pega:
-    - modelo (primeira frase até a primeira vírgula)
-    - preço (linha que contém 'R$', sem o '✅')
+    Extrai:
+    - modelo = PRIMEIRA LINHA inteira
+    - preço  = PRIMEIRA linha que contém 'R$'
+    Não depende de vírgula, pode ter texto extra, ✅, etc.
     """
     lines = [l.strip() for l in caption.splitlines() if l.strip()]
 
@@ -59,19 +60,13 @@ def extrair_modelo_e_preco(caption: str) -> tuple[str, str]:
     preco = ""
 
     if lines:
-        # primeira linha -> pegar antes da primeira vírgula
-        primeira = lines[0]
-        if "," in primeira:
-            modelo = primeira.split(",")[0].strip()
-        else:
-            modelo = primeira.strip()
+        modelo = lines[0]  # título completo
 
     for l in lines:
         if "R$" in l:
-            # pega de "R$" até o final
+            # pega a partir de "R$" até o fim, remove ✅ e espaços
             idx = l.find("R$")
-            preco = l[idx:].strip()
-            preco = preco.replace("✅", "").strip()
+            preco = l[idx:].replace("✅", "").strip()
             break
 
     if not modelo:
@@ -127,7 +122,7 @@ def montar_layout_instagram(photo_path: str, caption: str, user_id: int) -> str:
         font_model = ImageFont.load_default()
         font_small = ImageFont.load_default()
 
-    # Áreas da barra
+    # Áreas da barra (esquerda / centro / direita)
     total_w = size[0]
     left_w = int(total_w * 0.55)
     center_w = int(total_w * 0.28)
@@ -155,7 +150,6 @@ def montar_layout_instagram(photo_path: str, caption: str, user_id: int) -> str:
     centro_texto = "A maior vitrine de pesados do Brasil! 🇧🇷"
     telefone = "(84) 98160-3052"
 
-    # centralizar verticalmente no bloco
     center_mid_y = bar_top + bar_height // 2
 
     # Tagline
@@ -171,11 +165,9 @@ def montar_layout_instagram(photo_path: str, caption: str, user_id: int) -> str:
     draw.text((tel_x, tel_y), telefone, font=font_small, fill="#F5F5F5")
 
     # ------------------- BLOCO DIREITO (LOGO) -------------------
-    # Se existir o arquivo logo_renatruck.png, coloca no canto direito
     try:
         if os.path.exists(LOGO_PATH):
             logo = Image.open(LOGO_PATH).convert("RGBA")
-            # dimensiona logo pra caber na barra
             max_logo_w = right_w - 40
             max_logo_h = bar_height - 40
             logo.thumbnail((max_logo_w, max_logo_h), Image.LANCZOS)
@@ -199,7 +191,7 @@ def montar_layout_instagram(photo_path: str, caption: str, user_id: int) -> str:
 def montar_legenda_padrao(caption: str) -> str:
     """
     Formata a legenda:
-    Título (primeira linha inteira)
+    Título (primeira linha)
     • bullets (demais linhas, inclusive preço)
     CTA final
     """
@@ -234,13 +226,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "- Barra preta embaixo com PREÇO, MODELO, frase e logo\n\n"
         "Como usar:\n"
         "1️⃣ Me manda UMA FOTO do caminhão 📸\n"
-        "2️⃣ Depois me manda o TEXTO nesse formato:\n\n"
-        "Exemplo de texto:\n"
+        "2️⃣ Depois me manda o TEXTO do anúncio.\n\n"
+        "Dica de formato (mas pode variar):\n\n"
         "MB 710 ano 2007, vai com carroceria de madeira (que está ajeitando), "
         "com 389 mil km, carro todo revisado, pronto para trabalhar.\n"
         "R$ 185.000,00 ✅\n\n"
-        "→ A marca/modelo (antes da primeira vírgula) vai ficar grande na barra.\n"
-        "→ A linha com R$ vira o preço grande.\n\n"
+        "→ Eu vou usar a PRIMEIRA LINHA inteira como título grande.\n"
+        "→ Vou procurar a PRIMEIRA linha que tenha 'R$' para usar como preço grande.\n\n"
         "Pode me mandar a FOTO agora 📸"
     )
     await update.message.reply_text(msg)
@@ -258,9 +250,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     context.user_data["photo_path"] = file_path
 
     await update.message.reply_text(
-        "Foto salva ✅\nAgora me manda o TEXTO do anúncio naquele formato:\n\n"
-        "1ª linha: modelo/ano/etc.\n"
-        "Outra linha: preço com R$ e ✅"
+        "Foto salva ✅\n\n"
+        "Agora me manda o TEXTO do anúncio.\n\n"
+        "Lembra: eu pego a PRIMEIRA linha como título e a PRIMEIRA linha com 'R$' como preço 😉"
     )
 
 
@@ -287,8 +279,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         with open(output_path, "rb") as img_file:
             await update.message.reply_photo(
                 img_file,
-                caption="Tá aí sua arte pronta pra Instagram ✅\n\n"
-                        "A legenda vem na próxima mensagem. 👇",
+                caption=(
+                    "Tá aí sua arte pronta pra Instagram ✅\n\n"
+                    "Na próxima mensagem eu te mando a legenda pra você copiar e colar. 👇"
+                ),
             )
     except Exception as e:
         await update.message.reply_text(
