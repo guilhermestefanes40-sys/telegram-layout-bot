@@ -15,7 +15,7 @@ from PIL import Image, ImageDraw, ImageFont
 TOKEN = os.environ.get("BOT_TOKEN")
 
 # Caminho do arquivo de logo (PNG com fundo transparente).
-# Coloque um arquivo "logo_renatruck.png" na raiz do repositório se quiser mostrar a logo.
+# Se quiser logo, coloque um arquivo "logo_renatruck.png" na raiz do repo.
 LOGO_PATH = "logo_renatruck.png"
 
 
@@ -23,7 +23,7 @@ LOGO_PATH = "logo_renatruck.png"
 #                 FUNÇÕES DE IMAGEM / LAYOUT
 # ============================================================
 
-def crop_fill(img: Image.Image, target_w: int, target_h: int) -> Image.Image:
+def crop_fill(img, target_w, target_h):
     """
     Corta a imagem mantendo o centro e dá zoom
     para preencher exatamente target_w x target_h.
@@ -47,7 +47,7 @@ def crop_fill(img: Image.Image, target_w: int, target_h: int) -> Image.Image:
     return img.resize((target_w, target_h), Image.LANCZOS)
 
 
-def extrair_modelo_e_preco(caption: str) -> tuple[str, str]:
+def extrair_modelo_e_preco(caption):
     """
     Extrai:
     - modelo = PRIMEIRA LINHA inteira
@@ -60,11 +60,10 @@ def extrair_modelo_e_preco(caption: str) -> tuple[str, str]:
     preco = ""
 
     if lines:
-        modelo = lines[0]  # título completo
+        modelo = lines[0]  # título completo (primeira linha)
 
     for l in lines:
         if "R$" in l:
-            # pega a partir de "R$" até o fim, remove ✅ e espaços
             idx = l.find("R$")
             preco = l[idx:].replace("✅", "").strip()
             break
@@ -77,10 +76,10 @@ def extrair_modelo_e_preco(caption: str) -> tuple[str, str]:
     return modelo, preco
 
 
-def montar_layout_instagram(photo_path: str, caption: str, user_id: int) -> str:
+def montar_layout_instagram(photo_path, caption, user_id):
     """
     Layout final 1080x1080 estilo Renatruck:
-    - Foto ocupa a parte de cima (cerca de 80%)
+    - Foto ocupa a parte de cima
     - Barra preta embaixo com:
       - Preço grande (esquerda)
       - Modelo grande abaixo do preço
@@ -188,7 +187,7 @@ def montar_layout_instagram(photo_path: str, caption: str, user_id: int) -> str:
     return output_path
 
 
-def montar_legenda_padrao(caption: str) -> str:
+def montar_legenda_padrao(caption):
     """
     Formata a legenda:
     Título (primeira linha)
@@ -227,12 +226,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "Como usar:\n"
         "1️⃣ Me manda UMA FOTO do caminhão 📸\n"
         "2️⃣ Depois me manda o TEXTO do anúncio.\n\n"
-        "Dica de formato (mas pode variar):\n\n"
+        "Exemplo de texto (pode variar):\n\n"
         "MB 710 ano 2007, vai com carroceria de madeira (que está ajeitando), "
         "com 389 mil km, carro todo revisado, pronto para trabalhar.\n"
         "R$ 185.000,00 ✅\n\n"
-        "→ Eu vou usar a PRIMEIRA LINHA inteira como título grande.\n"
-        "→ Vou procurar a PRIMEIRA linha que tenha 'R$' para usar como preço grande.\n\n"
+        "→ Eu uso a PRIMEIRA linha inteira como título grande.\n"
+        "→ E uso a PRIMEIRA linha que tiver 'R$' como preço grande.\n\n"
         "Pode me mandar a FOTO agora 📸"
     )
     await update.message.reply_text(msg)
@@ -268,11 +267,16 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     user_id = update.effective_user.id
 
-    # Monta a arte
-    output_path = montar_layout_instagram(photo_path, text, user_id)
-
-    # Monta a legenda
-    legenda = montar_legenda_padrao(text)
+    # Tenta gerar a arte e a legenda. Se der erro, avisa no próprio WhatsApp.
+    try:
+        output_path = montar_layout_instagram(photo_path, text, user_id)
+        legenda = montar_legenda_padrao(text)
+    except Exception as e:
+        await update.message.reply_text(
+            "Deu um erro interno ao montar a arte 😥\n\n"
+            f"Detalhe técnico (me manda isso aqui):\n{e}"
+        )
+        return
 
     # Envia a arte
     try:
@@ -286,8 +290,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             )
     except Exception as e:
         await update.message.reply_text(
-            f"Deu erro ao gerar a arte 😥\n"
-            f"Tenta de novo ou manda outra foto.\n\nDetalhe técnico: {e}"
+            "Consegui gerar o arquivo, mas deu erro na hora de enviar a imagem 😥\n\n"
+            f"Detalhe técnico (me manda isso aqui):\n{e}"
         )
         return
 
