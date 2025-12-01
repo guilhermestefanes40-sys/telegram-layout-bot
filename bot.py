@@ -11,8 +11,13 @@ from telegram.ext import (
 )
 from PIL import Image, ImageDraw, ImageFont
 
+# Token do bot (configurado no Railway como BOT_TOKEN)
 TOKEN = os.environ.get("BOT_TOKEN")
+
+# Arquivos que você precisa ter na raiz do repositório:
 LOGO_PATH = "logo_renatruck.png"
+FONT_BOLD = "renatruck_bold.ttf"
+FONT_REGULAR = "renatruck_regular.ttf"
 
 
 # ===================================================================
@@ -76,7 +81,8 @@ def montar_layout_instagram(photo_path, caption, user_id):
     size = (1080, 1080)
     canvas = Image.new("RGB", size, (255, 255, 255))
 
-    bar_height = 260
+    # barra um pouco menor pra foto ganhar mais espaço
+    bar_height = 230
     photo_height = size[1] - bar_height
 
     # FOTO ================================
@@ -91,12 +97,15 @@ def montar_layout_instagram(photo_path, caption, user_id):
 
     modelo, preco = extrair_modelo_e_preco(caption)
 
+    # Tenta carregar fontes da Renatruck, senão cai na default
     try:
-        font_price = ImageFont.truetype("arial.ttf", 70)
-        font_model = ImageFont.truetype("arial.ttf", 40)
-        font_small = ImageFont.truetype("arial.ttf", 30)
-    except:
-        font_price = font_model = font_small = ImageFont.load_default()
+        font_price = ImageFont.truetype(FONT_BOLD, 90)
+        font_model = ImageFont.truetype(FONT_BOLD, 50)
+        font_small = ImageFont.truetype(FONT_REGULAR, 30)
+    except Exception:
+        font_price = ImageFont.load_default()
+        font_model = ImageFont.load_default()
+        font_small = ImageFont.load_default()
 
     # Divisões da barra
     total_w = 1080
@@ -108,19 +117,21 @@ def montar_layout_instagram(photo_path, caption, user_id):
     center_x0 = left_w
     right_x0 = left_w + center_w
 
-    # ================= BLOCO ESQUERDO =================
+    # ================= BLOCO ESQUERDO (PREÇO + MODELO) =================
     padding_left = 30
-    y_price = bar_top + 25
+    y_price = bar_top + 20
+
+    # Preço grande
     draw.text((padding_left, y_price), preco, font=font_price, fill="white")
 
-    # Modelo embaixo do preço
-    y_model = y_price + 85
+    # Modelo embaixo do preço, quebrando em mais de uma linha se for grande
+    y_model = y_price + 90
     wrapped_model = textwrap.wrap(modelo, width=26)
     for line in wrapped_model:
         draw.text((padding_left, y_model), line, font=font_model, fill="white")
-        y_model += 45
+        y_model += 48
 
-    # ================= BLOCO CENTRAL ==================
+    # ================= BLOCO CENTRAL (TAGLINE + TEL) ==================
     centro_texto = "A maior vitrine de pesados do Brasil! 🇧🇷"
     telefone = "(84) 98160-3052"
 
@@ -129,21 +140,23 @@ def montar_layout_instagram(photo_path, caption, user_id):
 
     center_mid_y = bar_top + bar_height // 2
 
+    # Frase
     draw.text(
         (center_x0 + (center_w - w_tag) // 2, center_mid_y - h_tag),
         centro_texto,
         font=font_small,
-        fill="#F5F5F5"
+        fill="#F5F5F5",
     )
 
+    # Telefone
     draw.text(
         (center_x0 + (center_w - w_tel) // 2, center_mid_y + 5),
         telefone,
         font=font_small,
-        fill="#F5F5F5"
+        fill="#F5F5F5",
     )
 
-    # ================= BLOCO DIREITO (LOGO) ================
+    # ================= BLOCO DIREITO (LOGO) ============================
     try:
         if os.path.exists(LOGO_PATH):
             logo = Image.open(LOGO_PATH).convert("RGBA")
@@ -153,7 +166,7 @@ def montar_layout_instagram(photo_path, caption, user_id):
             logo_y = bar_top + (bar_height - logo.height) // 2
 
             canvas.paste(logo, (logo_x, logo_y), logo)
-    except:
+    except Exception:
         pass
 
     # Salvar arquivo final
@@ -234,7 +247,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     with open(output_path, "rb") as img:
         await update.message.reply_photo(
             img,
-            caption="Sua arte está pronta! ✅\n\nAbaixo envio a legenda:"
+            caption="Sua arte está pronta! ✅\n\nAbaixo envio a legenda:",
         )
 
     await update.message.reply_text(legenda)
