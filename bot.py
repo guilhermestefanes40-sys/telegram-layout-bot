@@ -14,6 +14,10 @@ from PIL import Image, ImageDraw, ImageFont
 # Token do bot (configurado como variável BOT_TOKEN no Railway)
 TOKEN = os.environ.get("BOT_TOKEN")
 
+# Caminho do arquivo de logo (PNG com fundo transparente).
+# Coloque um arquivo "logo_renatruck.png" na raiz do repositório.
+LOGO_PATH = "logo_renatruck.png"
+
 
 # ============================================================
 #                 FUNÇÕES DE IMAGEM / LAYOUT
@@ -43,69 +47,148 @@ def crop_fill(img: Image.Image, target_w: int, target_h: int) -> Image.Image:
     return img.resize((target_w, target_h), Image.LANCZOS)
 
 
+def extrair_modelo_e_preco(caption: str) -> tuple[str, str]:
+    """
+    Pega:
+    - modelo (primeira frase até a primeira vírgula)
+    - preço (linha que contém 'R$', sem o '✅')
+    """
+    lines = [l.strip() for l in caption.splitlines() if l.strip()]
+
+    modelo = ""
+    preco = ""
+
+    if lines:
+        # primeira linha -> pegar antes da primeira vírgula
+        primeira = lines[0]
+        if "," in primeira:
+            modelo = primeira.split(",")[0].strip()
+        else:
+            modelo = primeira.strip()
+
+    for l in lines:
+        if "R$" in l:
+            # pega de "R$" até o final
+            idx = l.find("R$")
+            preco = l[idx:].strip()
+            preco = preco.replace("✅", "").strip()
+            break
+
+    if not modelo:
+        modelo = "Caminhão"
+    if not preco:
+        preco = "Sob consulta"
+
+    return modelo, preco
+
+
 def montar_layout_instagram(photo_path: str, caption: str, user_id: int) -> str:
     """
-    Layout final 1080x1080:
-    - 1 foto grande ocupando a parte de cima (ex: 760px)
-    - faixa de texto embaixo com título + bullets
+    Layout final 1080x1080 estilo Renatruck:
+    - Foto ocupa a parte de cima (cerca de 80%)
+    - Barra preta embaixo com:
+      - Preço grande (esquerda)
+      - Modelo grande abaixo do preço
+      - Centro com frase + telefone
+      - Direita com logo (se existir o arquivo)
     """
     size = (1080, 1080)
     canvas = Image.new("RGB", size, (255, 255, 255))
 
+    # Alturas
+    bar_height = 260  # altura da barra preta
+    photo_height = size[1] - bar_height  # resto para a foto
+
     # ------------------------------------------------------------
     # FOTO PRINCIPAL (topo) - com crop inteligente
     # ------------------------------------------------------------
-    foto_altura = 760  # mais espaço pra foto
-    foto_largura = 1080
-
     img = Image.open(photo_path).convert("RGB")
-    img = crop_fill(img, foto_largura, foto_altura)
+    img = crop_fill(img, size[0], photo_height)
     canvas.paste(img, (0, 0))
 
     # ------------------------------------------------------------
-    # FAIXA DE TEXTO (parte de baixo)
+    # BARRA PRETA INFERIOR
     # ------------------------------------------------------------
-    faixa_top = foto_altura          # começa logo após a foto
-    faixa_altura = size[1] - faixa_top  # resto da imagem
-
+    bar_top = photo_height
     draw = ImageDraw.Draw(canvas)
-    draw.rectangle([(0, faixa_top), (1080, 1080)], fill=(20, 20, 20))
+    draw.rectangle([(0, bar_top), (size[0], size[1])], fill=(10, 10, 10))
 
-    # fontes
+    # ------------------------------------------------------------
+    # TEXTOS: modelo e preço extraídos da legenda
+    # ------------------------------------------------------------
+    modelo, preco = extrair_modelo_e_preco(caption)
+
     try:
-        font_title = ImageFont.truetype("arial.ttf", 50)
-        font_body = ImageFont.truetype("arial.ttf", 32)
+        font_price = ImageFont.truetype("arial.ttf", 70)
+        font_model = ImageFont.truetype("arial.ttf", 40)
+        font_small = ImageFont.truetype("arial.ttf", 30)
     except Exception:
-        font_title = ImageFont.load_default()
-        font_body = ImageFont.load_default()
+        font_price = ImageFont.load_default()
+        font_model = ImageFont.load_default()
+        font_small = ImageFont.load_default()
 
-    lines = [l.strip() for l in caption.splitlines() if l.strip()]
-    title = lines[0] if lines else "Anúncio"
-    bullets = lines[1:]
+    # Áreas da barra
+    total_w = size[0]
+    left_w = int(total_w * 0.55)
+    center_w = int(total_w * 0.28)
+    right_w = total_w - left_w - center_w
 
-    text_x = 40
-    text_y = faixa_top + 20
-    max_width_chars = 32
+    left_x0, left_x1 = 0, left_w
+    center_x0, center_x1 = left_x1, left_x1 + center_w
+    right_x0, right_x1 = center_x1, total_w
 
-    # título
-    draw.text((text_x, text_y), title, font=font_title, fill="white")
-    text_y += 60
+    # ------------------- BLOCO ESQUERDO (PREÇO + MODELO) -------------------
+    padding_left = 30
+    y_price = bar_top + 30
 
-    # bullets
-    for b in bullets:
-        wrapped = textwrap.wrap(b, width=max_width_chars)
-        for i, line in enumerate(wrapped):
-            prefix = "• " if i == 0 else "  "
-            draw.text(
-                (text_x, text_y),
-                prefix + line,
-                font=font_body,
-                fill="#DCDCDC",
-            )
-            text_y += 38
-        text_y += 6
+    draw.text((padding_left, y_price), preco, font=font_price, fill="white")
 
-    # salvar arte
+    # modelo abaixo do preço (quebrando se ficar muito longo)
+    y_model = y_price + 80
+    max_chars_model = 26
+    wrapped_model = textwrap.wrap(modelo, width=max_chars_model)
+    for line in wrapped_model:
+        draw.text((padding_left, y_model), line, font=font_model, fill="white")
+        y_model += 42
+
+    # ------------------- BLOCO CENTRAL (TAGLINE + TEL) -------------------
+    centro_texto = "A maior vitrine de pesados do Brasil! 🇧🇷"
+    telefone = "(84) 98160-3052"
+
+    # centralizar verticalmente no bloco
+    center_mid_y = bar_top + bar_height // 2
+
+    # Tagline
+    w_tagline, h_tagline = draw.textsize(centro_texto, font=font_small)
+    tagline_x = center_x0 + (center_w - w_tagline) // 2
+    tagline_y = center_mid_y - h_tagline
+    draw.text((tagline_x, tagline_y), centro_texto, font=font_small, fill="#F5F5F5")
+
+    # Telefone
+    w_tel, h_tel = draw.textsize(telefone, font=font_small)
+    tel_x = center_x0 + (center_w - w_tel) // 2
+    tel_y = center_mid_y + 4
+    draw.text((tel_x, tel_y), telefone, font=font_small, fill="#F5F5F5")
+
+    # ------------------- BLOCO DIREITO (LOGO) -------------------
+    # Se existir o arquivo logo_renatruck.png, coloca no canto direito
+    try:
+        if os.path.exists(LOGO_PATH):
+            logo = Image.open(LOGO_PATH).convert("RGBA")
+            # dimensiona logo pra caber na barra
+            max_logo_w = right_w - 40
+            max_logo_h = bar_height - 40
+            logo.thumbnail((max_logo_w, max_logo_h), Image.LANCZOS)
+
+            logo_x = right_x0 + (right_w - logo.width) // 2
+            logo_y = bar_top + (bar_height - logo.height) // 2
+
+            canvas.paste(logo, (logo_x, logo_y), logo)
+    except Exception:
+        # Se der erro na logo, ignora e segue
+        pass
+
+    # Salvar arte
     os.makedirs("outputs", exist_ok=True)
     output_path = os.path.join("outputs", f"{user_id}_post_instagram.jpg")
     canvas.save(output_path, "JPEG", quality=90)
@@ -116,8 +199,8 @@ def montar_layout_instagram(photo_path: str, caption: str, user_id: int) -> str:
 def montar_legenda_padrao(caption: str) -> str:
     """
     Formata a legenda:
-    Título
-    • bullets
+    Título (primeira linha inteira)
+    • bullets (demais linhas, inclusive preço)
     CTA final
     """
     lines = [l.strip() for l in caption.splitlines() if l.strip()]
@@ -146,13 +229,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     msg = (
         f"Fala, {nome}! 👋\n\n"
-        "Novo fluxo:\n"
-        "- Você me manda APENAS 1 FOTO (principal)\n"
-        "- Depois manda o TEXTO do anúncio\n\n"
-        "Formato do texto:\n"
-        "Linha 1: Título (ex: Scania R-480 2019 6x4)\n"
-        "Linhas seguintes: itens do anúncio (km, estado, local, preço etc.)\n\n"
-        "Pode mandar a FOTO agora 📸"
+        "Layout Renatruck (1 foto):\n"
+        "- Foto grande em cima\n"
+        "- Barra preta embaixo com PREÇO, MODELO, frase e logo\n\n"
+        "Como usar:\n"
+        "1️⃣ Me manda UMA FOTO do caminhão 📸\n"
+        "2️⃣ Depois me manda o TEXTO nesse formato:\n\n"
+        "Exemplo de texto:\n"
+        "MB 710 ano 2007, vai com carroceria de madeira (que está ajeitando), "
+        "com 389 mil km, carro todo revisado, pronto para trabalhar.\n"
+        "R$ 185.000,00 ✅\n\n"
+        "→ A marca/modelo (antes da primeira vírgula) vai ficar grande na barra.\n"
+        "→ A linha com R$ vira o preço grande.\n\n"
+        "Pode me mandar a FOTO agora 📸"
     )
     await update.message.reply_text(msg)
 
@@ -163,20 +252,15 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     os.makedirs("downloads", exist_ok=True)
 
-    # Se já tem uma foto guardada, substitui ou pede pra /start
-    if "photo_path" in context.user_data:
-        # Vamos sobrescrever a anterior com a nova (caso a pessoa queira trocar)
-        idx = 1
-    else:
-        idx = 1
-
-    file_path = os.path.join("downloads", f"{update.effective_user.id}_{idx}.jpg")
+    file_path = os.path.join("downloads", f"{update.effective_user.id}_1.jpg")
     await file.download_to_drive(file_path)
 
     context.user_data["photo_path"] = file_path
 
     await update.message.reply_text(
-        "Foto salva ✅\nAgora me manda o TEXTO do anúncio naquele formato (título na primeira linha, itens nas linhas abaixo)."
+        "Foto salva ✅\nAgora me manda o TEXTO do anúncio naquele formato:\n\n"
+        "1ª linha: modelo/ano/etc.\n"
+        "Outra linha: preço com R$ e ✅"
     )
 
 
